@@ -5,3 +5,13 @@
 .forage-list .forage-more { margin: var(--size-4-2); }
 .forage-article .forage-byline { color: var(--text-muted); font-size: var(--font-ui-small); margin-bottom: var(--size-4-4); }
 .forage-article .forage-empty { color: var(--text-faint); padding: var(--size-4-8); text-align: center; }
+
+.forage-list .forage-row { display: flex; align-items: flex-start; gap: var(--size-4-2); }
+.forage-list .forage-row .tree-item-inner { flex: 1; min-width: 0; white-space: normal; }
+.forage-list .forage-thumb { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-s); background: var(--background-modifier-border); }
+.forage-list.is-wide { display: flex; flex-direction: column; padding: 0; }
+.forage-list .forage-split { display: flex; flex: 1; min-height: 0; }
+.forage-list .forage-scroll { overflow-y: auto; }
+.forage-list .forage-tree { flex: none; width: 36%; min-width: 150px; max-width: 260px; padding: 0 var(--size-4-1); border-right: 1px solid var(--background-modifier-border); }
+.forage-list .forage-items { flex: 1; min-width: 0; }
+.forage-list .forage-node .tree-item-inner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

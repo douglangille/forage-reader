@@ -4,7 +4,8 @@ const { Plugin, ItemView, MarkdownRenderer, Notice, PluginSettingTab, Setting, r
 
 const LIST = "forage-list";
 const ARTICLE = "forage-article";
-const DEFAULTS = { server: "https://ubik.tailc994b1.ts.net", inbox: "inbox" };
+const WIDE = 520; // sidebar px at which the feed tree appears beside the list
+const DEFAULTS = { server: "https://ubik.tailc994b1.ts.net", inbox: "inbox", collapsed: [] };
 
 class ForagePlugin extends Plugin {
   async onload() {
@@ -114,7 +115,7 @@ class ForagePlugin extends Plugin {
 }
 
 class ListView extends ItemView {
-  constructor(leaf, plugin) { super(leaf); this.plugin = plugin; this.render = () => this.draw(); }
+  constructor(leaf, plugin) { super(leaf); this.plugin = plugin; this.wide = false; this.render = () => this.draw(); }
   getViewType() { return LIST; }
   getDisplayText() { return "Forage"; }
   getIcon() { return "rss"; }
@@ -122,6 +123,13 @@ class ListView extends ItemView {
   async onOpen() {
     this.contentEl.addClass("forage-list");
     this.plugin.listeners.add(this.render);
+    // Wide sidebar: feed tree beside the article list. Narrow: a dropdown above the list.
+    const ro = new ResizeObserver(() => {
+      const wide = this.contentEl.clientWidth >= WIDE;
+      if (wide !== this.wide) { this.wide = wide; this.draw(); }
+    });
+    ro.observe(this.contentEl);
+    this.register(() => ro.disconnect());
     await this.plugin.loadFeeds();
     await this.plugin.loadEntries();
   }
@@ -129,7 +137,9 @@ class ListView extends ItemView {
 
   draw() {
     const p = this.plugin, el = this.contentEl;
+    const keep = [...el.querySelectorAll(".forage-scroll")].map((n) => n.scrollTop);
     el.empty();
+    el.toggleClass("is-wide", this.wide);
     const nav = el.createDiv("nav-header").createDiv("nav-buttons-container");
     const btn = (icon, label, fn) => {
       const b = nav.createDiv({ cls: "clickable-icon nav-action-button", attr: { "aria-label": label } });
@@ -142,23 +152,76 @@ class ListView extends ItemView {
       await p.api("/api/mark-read", "POST", body); await p.loadFeeds(); await p.loadEntries();
     });
 
-    const sel = el.createEl("select", { cls: "dropdown forage-filter" });
-    const opt = (v, t) => sel.createEl("option", { value: v, text: t });
-    opt("unread", "Unread"); opt("all", "All"); opt("starred", "Starred");
-    [...new Set(p.feeds.map((f) => f.folder).filter(Boolean))].sort().forEach((f) => opt("folder:" + f, "Folder: " + f));
-    p.feeds.forEach((f) => opt("feed:" + f.id, f.title + (f.unread ? ` (${f.unread})` : "")));
-    sel.value = p.filter;
-    sel.onchange = () => { p.filter = sel.value; p.loadEntries(); };
+    let box;
+    if (this.wide) {
+      const split = el.createDiv("forage-split");
+      this.drawTree(split.createDiv("forage-tree forage-scroll"));
+      box = split.createDiv("nav-files-container forage-items forage-scroll");
+    } else {
+      const sel = el.createEl("select", { cls: "dropdown forage-filter" });
+      const opt = (v, t) => sel.createEl("option", { value: v, text: t });
+      opt("unread", "Unread"); opt("all", "All"); opt("starred", "Starred");
+      [...new Set(p.feeds.map((f) => f.folder).filter(Boolean))].sort().forEach((f) => opt("folder:" + f, "Folder: " + f));
+      p.feeds.forEach((f) => opt("feed:" + f.id, f.title + (f.unread ? ` (${f.unread})` : "")));
+      sel.value = p.filter;
+      sel.onchange = () => { p.filter = sel.value; p.loadEntries(); };
+      box = el.createDiv("nav-files-container forage-scroll");
+    }
+    this.drawItems(box);
+    el.querySelectorAll(".forage-scroll").forEach((n, i) => { n.scrollTop = keep[i] || 0; });
+  }
 
-    const box = el.createDiv("nav-files-container");
+  drawTree(tree) {
+    const p = this.plugin;
+    const row = (parent, filter, text, count, cls = "") => {
+      const item = parent.createDiv("tree-item");
+      const self = item.createDiv({ cls: "tree-item-self is-clickable forage-node " + cls + (p.filter === filter ? " is-active" : "") });
+      self.createDiv({ cls: "tree-item-inner", text });
+      if (count) self.createDiv({ cls: "tree-item-flair-outer" }).createSpan({ cls: "tree-item-flair", text: String(count) });
+      self.onclick = () => { p.filter = filter; p.loadEntries(); };
+      return { item, self };
+    };
+    const sum = (fs) => fs.reduce((n, f) => n + (f.unread || 0), 0);
+    row(tree, "unread", "Unread", sum(p.feeds));
+    row(tree, "all", "All");
+    row(tree, "starred", "Starred");
+
+    const collapsed = new Set(p.settings.collapsed);
+    const folders = [...new Set(p.feeds.map((f) => f.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    for (const name of folders) {
+      const fs = p.feeds.filter((f) => f.folder === name);
+      const { item, self } = row(tree, "folder:" + name, name, sum(fs), "forage-folder");
+      const open = !collapsed.has(name);
+      const chev = self.createDiv({ cls: "tree-item-icon collapse-icon" + (open ? "" : " is-collapsed") });
+      setIcon(chev, "right-triangle");
+      self.prepend(chev);
+      chev.onclick = async (ev) => {
+        ev.stopPropagation();
+        const c = new Set(p.settings.collapsed);
+        c.has(name) ? c.delete(name) : c.add(name);
+        p.settings.collapsed = [...c];
+        await p.saveSettings();
+        this.draw();
+      };
+      if (open) {
+        const kids = item.createDiv("tree-item-children");
+        fs.forEach((f) => row(kids, "feed:" + f.id, f.title, f.unread));
+      }
+    }
+    p.feeds.filter((f) => !f.folder).forEach((f) => row(tree, "feed:" + f.id, f.title, f.unread));
+  }
+
+  drawItems(box) {
+    const p = this.plugin;
     if (!p.entries.length) box.createDiv({ cls: "forage-empty", text: "Nothing here." });
     for (const e of p.entries) {
       const item = box.createDiv("tree-item nav-file");
-      const self = item.createDiv({ cls: "tree-item-self nav-file-title is-clickable" + (e.id === p.currentId ? " is-active" : "") + (e.is_read ? " is-read" : " is-unread") });
+      const self = item.createDiv({ cls: "tree-item-self nav-file-title is-clickable forage-row" + (e.id === p.currentId ? " is-active" : "") + (e.is_read ? " is-read" : " is-unread") });
       const inner = self.createDiv("tree-item-inner nav-file-title-content");
       inner.createSpan({ text: (e.starred ? "★ " : "") + (e.saved_path ? "✓ " : "") + e.title });
       const when = e.published ? new Date(e.published).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
       inner.createSpan({ cls: "forage-meta", text: [e.feed_title, when].filter(Boolean).join(" · ") });
+      if (e.thumb) self.createEl("img", { cls: "forage-thumb", attr: { src: p.settings.server.replace(/\/+$/, "") + e.thumb, loading: "lazy", alt: "" } });
       self.onclick = () => { e.is_read = 1; p.openEntry(e.id); };
     }
     if (p.hasMore) box.createEl("button", { cls: "forage-more", text: "Load more" }).onclick = () => p.loadEntries(true);
