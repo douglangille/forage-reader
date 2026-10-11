@@ -4,6 +4,7 @@ const { Plugin, ItemView, MarkdownRenderer, Notice, PluginSettingTab, Setting, r
 
 const LIST = "forage-list";
 const ARTICLE = "forage-article";
+const NARROW = 260; // below this the thumbnails are dropped
 const WIDE = 520; // sidebar px at which the feed tree appears beside the list
 const DEFAULTS = { server: "https://ubik.tailc994b1.ts.net", inbox: "inbox", collapsed: [] };
 
@@ -125,7 +126,9 @@ class ListView extends ItemView {
     this.plugin.listeners.add(this.render);
     // Wide sidebar: feed tree beside the article list. Narrow: a dropdown above the list.
     const ro = new ResizeObserver(() => {
-      const wide = this.contentEl.clientWidth >= WIDE;
+      const w = this.contentEl.clientWidth;
+      this.contentEl.toggleClass("is-narrow", w < NARROW);
+      const wide = w >= WIDE;
       if (wide !== this.wide) { this.wide = wide; this.draw(); }
     });
     ro.observe(this.contentEl);
