@@ -1,18 +1,24 @@
+.forage-list { display: flex; flex-direction: column; padding: 0; }
+.forage-list .forage-scroll { overflow-y: auto; }
+.forage-list .forage-items { flex: 1; min-height: 0; min-width: 0; }
 .forage-list .forage-filter { margin: 0 var(--size-4-2) var(--size-4-2); width: calc(100% - 2 * var(--size-4-2)); }
 .forage-list .forage-meta { display: block; font-size: var(--font-ui-smaller); color: var(--text-faint); }
 .forage-list .is-unread .tree-item-inner { font-weight: var(--font-semibold); }
 .forage-list .is-read .tree-item-inner { color: var(--text-muted); }
 .forage-list .forage-more { margin: var(--size-4-2); }
-.forage-article .forage-byline { color: var(--text-muted); font-size: var(--font-ui-small); margin-bottom: var(--size-4-4); }
-.forage-article .forage-empty { color: var(--text-faint); padding: var(--size-4-8); text-align: center; }
-
 .forage-list .forage-row { display: flex; align-items: flex-start; gap: var(--size-4-2); }
 .forage-list .forage-row .tree-item-inner { flex: 1; min-width: 0; white-space: normal; }
+.forage-list .forage-flag { color: var(--text-accent); }
 .forage-list .forage-thumb { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-s); background: var(--background-modifier-border); }
-.forage-list.is-wide { display: flex; flex-direction: column; padding: 0; }
-.forage-list .forage-split { display: flex; flex: 1; min-height: 0; }
-.forage-list .forage-scroll { overflow-y: auto; }
-.forage-list .forage-tree { flex: none; width: 36%; min-width: 150px; max-width: 260px; padding: 0 var(--size-4-1); border-right: 1px solid var(--background-modifier-border); }
-.forage-list .forage-items { flex: 1; min-width: 0; }
-.forage-list .forage-node .tree-item-inner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .forage-list.is-narrow .forage-thumb { display: none; }
+.forage-list .forage-split { display: flex; flex: 1; min-height: 0; }
+.forage-list .forage-tree { flex: none; width: 36%; min-width: 150px; max-width: 260px; padding: 0 var(--size-4-1); border-right: 1px solid var(--background-modifier-border); }
+.forage-list .forage-node .tree-item-inner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.forage-list .forage-node.has-error .tree-item-inner { color: var(--text-error); }
+.forage-list [role="button"]:focus-visible { box-shadow: 0 0 0 2px var(--background-modifier-border-focus); }
+.forage-empty { color: var(--text-faint); padding: var(--size-4-8); text-align: center; }
+.forage-empty button { margin-top: var(--size-4-3); }
+.forage-article .forage-byline { color: var(--text-muted); font-size: var(--font-ui-small); margin-bottom: var(--size-4-4); }
+.view-action.forage-on { color: var(--text-accent); }
+.view-action.forage-on svg { fill: currentColor; }
+.view-action.forage-hidden { display: none; }
