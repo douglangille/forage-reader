@@ -1,0 +1,7 @@
+.forage-list .forage-filter { margin: 0 var(--size-4-2) var(--size-4-2); width: calc(100% - 2 * var(--size-4-2)); }
+.forage-list .forage-meta { display: block; font-size: var(--font-ui-smaller); color: var(--text-faint); }
+.forage-list .is-unread .tree-item-inner { font-weight: var(--font-semibold); }
+.forage-list .is-read .tree-item-inner { color: var(--text-muted); }
+.forage-list .forage-more { margin: var(--size-4-2); }
+.forage-article .forage-byline { color: var(--text-muted); font-size: var(--font-ui-small); margin-bottom: var(--size-4-4); }
+.forage-article .forage-empty { color: var(--text-faint); padding: var(--size-4-8); text-align: center; }

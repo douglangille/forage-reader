@@ -1,0 +1,10 @@
+{
+  "id": "forage-obsidian",
+  "name": "Forage",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Read your Forage RSS feeds inside Obsidian, beside your notes, and save an article into the vault with one click.",
+  "author": "Doug Langille",
+  "authorUrl": "https://github.com/douglangille",
+  "isDesktopOnly": true
+}
