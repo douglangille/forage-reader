@@ -11,7 +11,6 @@ const DEFAULTS = { server: "", inbox: "inbox", collapsed: [], scope: "all", unre
 
 const splitOnce = (s) => { const i = s.indexOf(":"); return i < 0 ? [s, ""] : [s.slice(0, i), s.slice(i + 1)]; };
 const httpOnly = (u) => (/^https?:\/\//i.test(u || "") ? u : "");
-const sourceOf = (md) => (/^source:\s*"(.*)"\s*$/m.exec(md || "") || [])[1] || "";
 const msg = (e) => (e && e.message) || String(e);
 
 class ConfirmModal extends Modal {
@@ -57,7 +56,6 @@ class ForagePlugin extends Plugin {
     cmd("previous", "Previous article", () => this.step(-1));
     cmd("refresh", "Check feeds for new articles", () => this.refreshFeeds());
     onArticle("save", "Save article to vault", (v) => v.save());
-    onArticle("save-again", "Save article again (write a new copy)", (v) => v.save(true));
     onArticle("star", "Toggle star", (v) => v.toggle("starred"));
     onArticle("read", "Toggle read", (v) => v.toggle("is_read"));
     onArticle("original", "Open original in browser", (v) => v.openOriginal());
@@ -204,31 +202,16 @@ class ForagePlugin extends Plugin {
     return this.app.workspace.getActiveViewOfType(ArticleView) || this.app.workspace.getLeavesOfType(ARTICLE)[0]?.view || null;
   }
 
-  async saveClip(id, force = false) {
+  // Saving is untracked: every call writes a new note (a repeat gets a numbered name), so the server keeps no "saved" state.
+  async saveClip(id) {
     const clip = await this.api(`/api/entries/${id}/clip`);
-    if (clip.saved_path && !force) {
-      new Notice(`Already saved as ${clip.saved_path}. Use "Save article again" for another copy.`);
-      return clip.saved_path;
-    }
     const dir = normalizePath(this.settings.inbox || "inbox");
     const fs = this.app.vault.adapter;
     if (!(await fs.exists(dir))) await this.app.vault.createFolder(dir);
     const base = clip.filename.replace(/\.md$/, "");
-    const source = sourceOf(clip.markdown);
     let name = base + ".md", n = 2;
-    for (;;) {
-      const path = `${dir}/${name}`;
-      if (!(await fs.exists(path))) break;
-      // The file is already there from an earlier save whose "saved" call never landed: link it, don't duplicate it.
-      if (!force && source && sourceOf(await fs.read(path)) === source) {
-        await this.api(`/api/entries/${id}/saved`, "POST", { path: name });
-        new Notice("Forage: linked the note already in " + dir);
-        return name;
-      }
-      name = `${base} ${n++}.md`;
-    }
+    while (await fs.exists(`${dir}/${name}`)) name = `${base} ${n++}.md`;
     await this.app.vault.create(`${dir}/${name}`, clip.markdown);
-    await this.api(`/api/entries/${id}/saved`, "POST", { path: name });
     new Notice(`Saved to ${dir}/${name}`);
     return name;
   }
@@ -374,7 +357,6 @@ class ListView extends ItemView {
       const inner = self.createDiv("tree-item-inner nav-file-title-content");
       const t = inner.createSpan();
       if (e.starred) t.createSpan({ cls: "forage-flag", text: "★ ", attr: { "aria-label": "Starred" } });
-      if (e.saved_path) t.createSpan({ cls: "forage-flag", text: "✓ ", attr: { "aria-label": "Saved" } });
       t.appendText(e.title);
       const when = e.published ? new Date(e.published).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
       inner.createSpan({ cls: "forage-meta", text: [e.feed_title, when].filter(Boolean).join(" · ") });
@@ -407,11 +389,11 @@ class ArticleView extends ItemView {
   }
   async onClose() { if (this.comp) this.removeChild(this.comp); }
 
-  // Reflect the article's state in the header buttons, so a star looks starred and a saved article looks saved.
+  // Reflect the article's state in the header buttons, so a star looks starred.
   syncActions() {
     const e = this.entry, a = this.acts;
     const set = (el, icon, label, on) => { setIcon(el, icon); el.setAttribute("aria-label", label); el.toggleClass("forage-on", !!on); };
-    set(a.save, e?.saved_path ? "check" : "download", e?.saved_path ? `Saved as ${e.saved_path}. Click to save another copy` : "Save to vault", e?.saved_path);
+    set(a.save, "download", "Save a clip to the vault", false);
     set(a.star, "star", e?.starred ? "Unstar" : "Star", e?.starred);
     set(a.read, e?.is_read ? "eye-off" : "eye", e?.is_read ? "Mark unread" : "Mark read", false);
     a.original.toggleClass("forage-hidden", !e?.url);
@@ -453,7 +435,7 @@ class ArticleView extends ItemView {
     el.appendChild(next.firstChild);
     el.scrollTop = 0;
 
-    this.entry = { id: clip.id, feed_id: clip.feed_id, title: clip.title, author: clip.author, url: httpOnly(clip.url), starred: clip.starred, is_read: clip.is_read, saved_path: clip.saved_path };
+    this.entry = { id: clip.id, feed_id: clip.feed_id, title: clip.title, author: clip.author, url: httpOnly(clip.url), starred: clip.starred, is_read: clip.is_read };
     this.leaf.updateHeader?.();
     this.plugin.currentId = this.id;
     if (!clip.is_read) {
@@ -463,23 +445,19 @@ class ArticleView extends ItemView {
         this.syncActions();
       }).catch(() => {});
     }
-    this.plugin.patchEntry(clip.id, { starred: clip.starred, saved_path: clip.saved_path });
+    this.plugin.patchEntry(clip.id, { starred: clip.starred });
     this.syncActions();
   }
 
-  async save(force = false) {
+  async save() {
     if (this.id == null || this.busy) return;
-    if (!force && this.entry?.saved_path) { new Notice(`Already saved as ${this.entry.saved_path}. Use "Save article again" for another copy.`); return; }
     this.busy = true;
     try {
-      const name = await this.plugin.saveClip(this.id, force);
-      if (this.entry) this.entry.saved_path = name;
-      this.plugin.patchEntry(this.id, { saved_path: name });
+      await this.plugin.saveClip(this.id);
     } catch (err) {
       new Notice("Forage: save failed: " + msg(err));
     }
     this.busy = false;
-    this.syncActions();
   }
 
   async toggle(field) {
