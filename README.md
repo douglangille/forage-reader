@@ -10,7 +10,7 @@ It's deliberately thin. Feeds, folders, backfill, OPML and the server's settings
 
 Not in the community plugin directory yet. Install with [BRAT](https://github.com/TfTHacker/obsidian42-brat): add the beta plugin `douglangille/forage-reader`. Or download `main.js`, `manifest.json` and `styles.css` from the latest release into `<vault>/.obsidian/plugins/forage-reader/`.
 
-Then enable **Forage** under Community plugins and set the server address in its settings (for example `https://forage.your-tailnet.ts.net`). The server needs Forage with the `/api/entries/{id}/clip` endpoint (any release from 10/11/2026 on).
+Then enable **Forage** under Community plugins and set the server address in its settings (for example `https://forage.your-tailnet.ts.net`). The server needs a current Forage (any release from 10/13/2026 on): the plugin reads `/api/entries/{id}/clip` and no longer calls `/saved`.
 
 ## Use
 
