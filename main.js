@@ -404,7 +404,7 @@ class ArticleView extends ItemView {
     el.addClass("forage-article");
     if (this.id == null) { el.empty(); el.createDiv({ cls: "forage-empty", text: "Pick an article from the Forage list." }); return; }
     let clip;
-    try { clip = await this.plugin.api(`/api/entries/${this.id}/clip`); }
+    try { clip = await this.plugin.api(`/api/entries/${this.id}/clip?transcript=0`); }
     catch (err) {
       if (tok !== this.tok) return;
       el.empty();
