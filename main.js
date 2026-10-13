@@ -7,7 +7,8 @@ const ARTICLE = "forage-article";
 const NARROW = 260; // below this width the thumbnails are dropped
 const WIDE = 440;   // at this width the feed tree appears beside the list
 const PAGE = 60;
-const DEFAULTS = { server: "", inbox: "inbox", collapsed: [], scope: "all", unreadOnly: true };
+const RECENT_HOURS = 48; // the same window as the web app's Recent view
+const DEFAULTS = { server: "", inbox: "inbox", collapsed: [], scope: "recent", unreadOnly: true };
 
 const splitOnce = (s) => { const i = s.indexOf(":"); return i < 0 ? [s, ""] : [s.slice(0, i), s.slice(i + 1)]; };
 const httpOnly = (u) => (/^https?:\/\//i.test(u || "") ? u : "");
@@ -33,6 +34,7 @@ class ForagePlugin extends Plugin {
     this.hasMore = false;
     this.currentId = null;
     this.loadSeq = 0;
+    this.query = "";
     this.lastLoad = 0;
     this.listeners = new Set();
 
@@ -101,6 +103,8 @@ class ForagePlugin extends Plugin {
     const [kind, val] = splitOnce(this.settings.scope);
     if (kind === "feed") q.set("feed", val);
     else if (kind === "folder") q.set("folder", val);
+    else if (kind === "recent") q.set("since_hours", String(RECENT_HOURS));
+    if (this.query) q.set("q", this.query);
     if (kind === "starred") q.set("starred", "true");
     else if (this.settings.unreadOnly) q.set("unread", "true");
     if (more && this.entries.length) { const l = this.entries[this.entries.length - 1]; q.set("before", `${l.published}|${l.id}`); }
@@ -149,8 +153,8 @@ class ForagePlugin extends Plugin {
   async markAllRead() {
     const [kind, val] = splitOnce(this.settings.scope);
     if (kind === "starred") { new Notice("Forage: mark all read doesn't apply to Starred"); return; }
-    const label = kind === "feed" ? (this.feeds.find((f) => String(f.id) === val)?.title || "this feed") : kind === "folder" ? val : "all items";
-    const body = kind === "feed" ? { feed: +val } : kind === "folder" ? { folder: val } : {};
+    const label = kind === "feed" ? (this.feeds.find((f) => String(f.id) === val)?.title || "this feed") : kind === "folder" ? val : kind === "recent" ? "Recent" : "all items";
+    const body = kind === "feed" ? { feed: +val } : kind === "folder" ? { folder: val } : kind === "recent" ? { since_hours: RECENT_HOURS } : {};
     // Only what arrived before the list was loaded: anything newer is still unseen.
     const newest = this.entries.reduce((m, e) => (e.published > m ? e.published : m), "");
     if (newest) body.older_than = newest;
@@ -243,6 +247,7 @@ class ListView extends ItemView {
   draw() {
     const p = this.plugin, el = this.contentEl;
     const keep = [...el.querySelectorAll(".forage-scroll")].map((n) => n.scrollTop);
+    const typing = !!el.querySelector(".forage-search") && el.querySelector(".forage-search") === document.activeElement;
     el.empty();
     el.toggleClass("is-wide", this.wide);
 
@@ -268,6 +273,14 @@ class ListView extends ItemView {
       return;
     }
 
+    const search = el.createEl("input", { cls: "forage-search", type: "search", attr: { placeholder: "Search titles and summaries…", "aria-label": "Search" } });
+    search.value = p.query;
+    if (typing) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); } // a redraw mid-typing keeps the caret
+    search.oninput = () => {
+      clearTimeout(this.searchT);
+      this.searchT = setTimeout(() => { p.query = search.value.trim(); p.loadEntries(); }, 250);
+    };
+
     let box;
     if (this.wide) {
       const split = el.createDiv("forage-split");
@@ -276,7 +289,7 @@ class ListView extends ItemView {
     } else {
       const sel = el.createEl("select", { cls: "dropdown forage-filter", attr: { "aria-label": "Feed or folder" } });
       const opt = (v, t) => sel.createEl("option", { value: v, text: t });
-      opt("all", "All items"); opt("starred", "Starred");
+      opt("recent", "Recent"); opt("all", "All items"); opt("starred", "Starred");
       [...new Set(p.feeds.map((f) => f.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b)).forEach((f) => opt("folder:" + f, "Folder: " + f));
       p.feeds.forEach((f) => opt("feed:" + f.id, (f.title || f.url) + (f.unread ? ` (${f.unread})` : "")));
       sel.value = p.settings.scope;
@@ -312,6 +325,7 @@ class ListView extends ItemView {
     };
     const sum = (fs) => fs.reduce((n, f) => n + (f.unread || 0), 0);
     const title = (f) => f.title || f.url;
+    row(tree, "recent", "Recent");
     row(tree, "all", "All items", sum(p.feeds));
     row(tree, "starred", "Starred");
 
@@ -370,11 +384,13 @@ class ArticleView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin; this.id = null; this.entry = null; this.tok = 0; this.comp = null; this.busy = false;
+    this.summaryOn = false; this.summaryText = "";
     this.acts = {
       save: this.addAction("download", "Save to vault", () => this.save()),
       star: this.addAction("star", "Star", () => this.toggle("starred")),
       read: this.addAction("eye-off", "Mark unread", () => this.toggle("is_read")),
       original: this.addAction("external-link", "Open original", () => this.openOriginal()),
+      summary: this.addAction("list", "Summarize with AI", () => this.summarize()),
     };
   }
   getViewType() { return ARTICLE; }
@@ -397,6 +413,7 @@ class ArticleView extends ItemView {
     set(a.star, "star", e?.starred ? "Unstar" : "Star", e?.starred);
     set(a.read, e?.is_read ? "eye-off" : "eye", e?.is_read ? "Mark unread" : "Mark read", false);
     a.original.toggleClass("forage-hidden", !e?.url);
+    a.summary.toggleClass("forage-hidden", !this.summaryOn);
   }
 
   async load() {
@@ -424,6 +441,11 @@ class ArticleView extends ItemView {
     sizer.createDiv({ cls: "forage-byline", text: [clip.feed_title, clip.author, when].filter(Boolean).join(" · ") });
     const comp = new Component();
     comp.load();
+    this.summaryOn = !!clip.summary_on; this.summaryText = clip.summary || "";
+    const sumBox = sizer.createDiv("forage-summary");
+    sumBox.hidden = true;
+    this.sumBox = sumBox; this.sumComp = comp;
+    if (this.summaryText) await this.showSummary(sumBox, comp, clip.summary, clip.summary_model);
     const body = clip.markdown.replace(/^---\n[\s\S]*?\n---\n+/, "").replace(/^# .*\n+/, "");
     await MarkdownRenderer.render(this.app, body, sizer.createDiv(), "", comp);
     if (tok !== this.tok) { comp.unload(); return; }
@@ -447,6 +469,31 @@ class ArticleView extends ItemView {
     }
     this.plugin.patchEntry(clip.id, { starred: clip.starred });
     this.syncActions();
+  }
+
+  async showSummary(box, comp, text, model) {
+    box.empty();
+    box.createDiv({ cls: "forage-summary-label", text: "AI summary" + (model ? ` · ${model}` : "") });
+    await MarkdownRenderer.render(this.app, text, box.createDiv(), "", comp);
+    box.hidden = false;
+  }
+
+  // On request, kept on the server's entry, so reopening the article shows it without asking again.
+  async summarize() {
+    if (this.id == null || this.sumBusy || !this.summaryOn) return;
+    if (this.summaryText) { this.sumBox.hidden = !this.sumBox.hidden; return; } // already have it: the button shows or hides it
+    this.sumBusy = true;
+    new Notice("Forage: summarizing, this can take half a minute");
+    const id = this.id;
+    try {
+      const r = await this.plugin.api(`/api/entries/${id}/summarize`, "POST", {});
+      if (id !== this.id) return;
+      this.summaryText = r.summary;
+      await this.showSummary(this.sumBox, this.sumComp, r.summary, r.model);
+      this.syncActions();
+      if (r.note) new Notice("Forage: " + r.note);
+    } catch (err) { new Notice("Forage: " + msg(err)); }
+    this.sumBusy = false;
   }
 
   async save() {
